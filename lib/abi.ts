@@ -1,0 +1,65 @@
+export const anonClaimAbi = [
+  {
+    type: 'function',
+    name: 'claim',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'nullifier',       type: 'bytes32' },
+      { name: 'root',            type: 'bytes32' },
+      { name: 'recipient',       type: 'address' },
+      { name: 'attestationId',   type: 'uint64'  },
+      { name: 'merklePath',      type: 'bytes32[]' },
+      { name: 'merkleLeafCount', type: 'uint256' },
+      { name: 'merkleLeafIndex', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setMerkleRoot',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newRoot', type: 'bytes32' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'merkleRoot',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
+  {
+    type: 'function',
+    name: 'scope',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
+  {
+    type: 'function',
+    name: 'nullifierUsed',
+    stateMutability: 'view',
+    inputs: [{ name: 'nullifier', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'error',
+    name: 'NullifierSpent',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'RootMismatch',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'AttestationInvalid',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'InsufficientBalance',
+    inputs: [],
+  },
+] as const

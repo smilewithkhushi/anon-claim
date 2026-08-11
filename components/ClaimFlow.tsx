@@ -1,22 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { isAddress } from 'viem'
+import { isAddress, type Hex } from 'viem'
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { Noir } from '@noir-lang/noir_js'
 import { UltraHonkBackend, type ProofData } from '@aztec/bb.js'
 import type { CompiledCircuit } from '@noir-lang/types'
 import { deriveCommitment, deriveNullifier } from '@/lib/crypto'
 import { getRoot, getMerklePath } from '@/lib/merkle'
-import { submitProofToKurier, pollJobStatus, type KurierJobStatus } from '@/lib/kurier'
+import { submitProofToKurier, pollJobStatus, type KurierJobStatus, type KurierJob } from '@/lib/kurier'
+import { horizenTestnet } from '@/lib/chains'
+import { anonClaimAbi } from '@/lib/abi'
 import anonClaimCircuit from '@/circuit/target/anon_claim.json'
 
-// TODO: replace with actual deployed contract address
 const CLAIM_CONTRACT = (process.env.NEXT_PUBLIC_CLAIM_CONTRACT ?? '0x0000000000000000000000000000000000000000') as `0x${string}`
-// Campaign scope — set once claim contract is deployed:
-//   Hash(contractAddress || campaignId)
+// Read from contract after deployment: cast call $CLAIM_CONTRACT "scope()(bytes32)"
 const SCOPE = (process.env.NEXT_PUBLIC_CAMPAIGN_SCOPE ?? '0x0000000000000000000000000000000000000000000000000000000000000001') as `0x${string}`
-
-// VK hash registered with Kurier (set after calling /api/kurier/register-vk once)
 const VK_HASH = process.env.NEXT_PUBLIC_VK_HASH ?? ''
 
 type ClaimStep =
@@ -77,8 +76,10 @@ export function ClaimFlow() {
   const [recipient, setRecipient] = useState('')
   const [step, setStep] = useState<ClaimStep>('input')
   const [kurierStatus, setKurierStatus] = useState<KurierJobStatus | null>(null)
-  const [txHash, setTxHash] = useState<`0x${string}` | null>(null)
+  const [txHash, setTxHash] = useState<Hex | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const { writeContractAsync } = useWriteContract()
 
   const secretHex = secretInput.trim() as `0x${string}`
   const recipientHex = recipient.trim() as `0x${string}`
@@ -122,20 +123,43 @@ export function ClaimFlow() {
 
       // 4. Poll until aggregated and published to Horizen's zkVerify domain
       setStep('polling')
-      const job = await pollJobStatus(jobId, (s) => setKurierStatus(s))
+      const job: KurierJob = await pollJobStatus(jobId, (s) => setKurierStatus(s))
 
-      // 5. Call claim contract on Horizen
+      if (!job.attestationId || !job.merkleProof) {
+        throw new Error('Kurier job completed but missing attestation data.')
+      }
+
+      // 5. Call claim contract on Horizen testnet
       setStep('claiming')
-      // TODO: wire wagmi's writeContract once CLAIM_CONTRACT address + ABI are known
-      // const { hash } = await writeContract(wagmiConfig, {
-      //   address: CLAIM_CONTRACT,
-      //   abi: claimAbi,
-      //   functionName: 'claim',
-      //   args: [nullifier, root, recipient, job.attestationId, job.merkleProof],
-      //   chain: horizenTestnet,
-      // })
-      // setTxHash(hash)
-      throw new Error('On-chain claim not yet wired — deploy the claim contract first.')
+      // merkleLeafIndex: decode the direction-bit array to an integer leaf position.
+      // indices[i] = 0 means the current node is the LEFT child at depth i.
+      // The leaf's absolute position = bit-string of indices interpreted as binary.
+      const merkleLeafIndex = job.merkleProof.indices.reduce(
+        (acc: bigint, bit: number, i: number) => acc | (BigInt(bit) << BigInt(i)),
+        0n,
+      )
+      // merkleLeafCount: 2^(path depth) gives the tree capacity used by zkVerify.
+      // TODO: verify against actual Kurier attestation docs — if Kurier returns the
+      // actual batch size separately, use that instead.
+      const merkleLeafCount = 1n << BigInt(job.merkleProof.path.length)
+
+      const hash = await writeContractAsync({
+        address: CLAIM_CONTRACT,
+        abi: anonClaimAbi,
+        functionName: 'claim',
+        args: [
+          nullifier as Hex,
+          root as Hex,
+          recipientHex,
+          BigInt(job.attestationId),
+          job.merkleProof.path as Hex[],
+          merkleLeafCount,
+          merkleLeafIndex,
+        ],
+        chain: horizenTestnet,
+      })
+      setTxHash(hash)
+      setStep('done')
 
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))

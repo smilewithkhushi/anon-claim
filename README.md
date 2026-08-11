@@ -97,24 +97,26 @@ Open [http://localhost:3000](http://localhost:3000).
 
 The commitment registry is backed by `self/commitments.json` for local development. This file is not suitable for shared or production deployments — replace the `GET`/`POST` handlers in `app/api/commitments/route.ts` with a persistent store (e.g. Neon, Vercel Blob).
 
-## Recompiling the circuit
+## Compiling the circuit
+
+The compiled artifacts are not committed — run these before starting the dev server:
 
 ```bash
-cd circuit
-nargo compile
+cd circuit && nargo compile && nargo prove --oracle-resolver=keccak && cd ..
+cd circuit-utils/hasher && nargo compile && cd ../..
+cd circuit-utils/pair   && nargo compile && cd ../..
 ```
 
-The compiled artifact (`circuit/target/anon_claim.json`) is committed so the frontend works without Nargo installed.
-
-```bash
-# Recompile utility circuits
-cd circuit-utils/hasher && nargo compile
-cd circuit-utils/pair   && nargo compile
-```
+This produces:
+- `circuit/target/anon_claim.json` — ACIR bytecode loaded by the frontend prover
+- `circuit/target/vk/vk` — UltraHonk verification key (needed for Kurier VK registration)
+- `circuit-utils/target/hasher.json` and `circuit-utils/target/pair_hasher.json` — used by `lib/crypto.ts` and `lib/merkle.ts`
 
 ## What's not wired yet
 
-- **On-chain claim** — `ClaimFlow.tsx` stubs out the `writeContract` call. Deploy the claim contract and fill in `CLAIM_CONTRACT`, the ABI, and `wagmi`'s `writeContract` call.
+- **Deploy the claim contract** — `contracts/src/AnonClaim.sol` is ready. Deploy to Horizen testnet, then set `NEXT_PUBLIC_CLAIM_CONTRACT`, `NEXT_PUBLIC_CAMPAIGN_SCOPE` (read from `contract.scope()`), and fund the contract with `rewardAmount × eligibleCount` ZEN.
+- **VK registration** — Call `/api/kurier/register-vk` once after compiling the circuit to get `NEXT_PUBLIC_VK_HASH`. Pass the path to `circuit/target/vk/vk`.
+- **Merkle root update** — After registrations accumulate, call `contract.setMerkleRoot(newRoot)` from the owner wallet and update `NEXT_PUBLIC_MERKLE_ROOT` in `.env.local`.
 - **Eligibility list** — `RegistrationFlow.tsx` has an empty `ELIGIBLE_ADDRESSES` array (open demo mode). Replace with an on-chain check or a signed allowlist.
 - **Persistent registry** — `app/api/commitments/route.ts` writes to a local file. Replace with a database before deploying to Vercel or any serverless host.
-- **VK registration** — Call `/api/kurier/register-vk` once after deploying to get `NEXT_PUBLIC_VK_HASH`.
+- **zkVerify interface** — `contracts/src/interfaces/IZkVerify.sol` and the leaf-hash encoding in `AnonClaim._proofLeaf()` must be verified against the deployed Horizen zkVerify contract ABI before going live.
