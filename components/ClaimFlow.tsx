@@ -2,29 +2,47 @@
 
 import { useState } from 'react'
 import { isAddress } from 'viem'
+import { Noir } from '@noir-lang/noir_js'
+import { UltraHonkBackend, type ProofData } from '@aztec/bb.js'
+import type { CompiledCircuit } from '@noir-lang/types'
 import { deriveCommitment, deriveNullifier } from '@/lib/crypto'
-import { getRoot, getMerklePath, TREE_DEPTH } from '@/lib/merkle'
+import { getRoot, getMerklePath } from '@/lib/merkle'
 import { submitProofToKurier, pollJobStatus, type KurierJobStatus } from '@/lib/kurier'
+import anonClaimCircuit from '@/circuit/target/anon_claim.json'
 
 // TODO: replace with actual deployed contract address
 const CLAIM_CONTRACT = (process.env.NEXT_PUBLIC_CLAIM_CONTRACT ?? '0x0000000000000000000000000000000000000000') as `0x${string}`
-// Campaign scope = keccak256(contractAddress ++ campaignId) — set once contract is deployed
+// Campaign scope — set once claim contract is deployed:
+//   Hash(contractAddress || campaignId)
 const SCOPE = (process.env.NEXT_PUBLIC_CAMPAIGN_SCOPE ?? '0x0000000000000000000000000000000000000000000000000000000000000001') as `0x${string}`
 
+// VK hash registered with Kurier (set after calling /api/kurier/register-vk once)
+const VK_HASH = process.env.NEXT_PUBLIC_VK_HASH ?? ''
+
 type ClaimStep =
-  | 'input'          // user enters secret + recipient
-  | 'generating'     // client-side bb.js WASM proof generation (can take seconds)
-  | 'submitting'     // sending proof to Kurier
-  | 'polling'        // waiting for Kurier aggregation + zkVerify publication
-  | 'claiming'       // sending on-chain claim tx
+  | 'input'       // user enters secret + recipient
+  | 'generating'  // client-side bb.js WASM proof generation (takes a few seconds)
+  | 'submitting'  // sending proof to Kurier
+  | 'polling'     // waiting for Kurier aggregation + zkVerify publication
+  | 'claiming'    // sending on-chain claim tx
   | 'done'
   | 'error'
 
-// TODO: replace with real bb.js + noir_js proof generation once circuit is compiled.
-// import { UltraHonkBackend } from '@aztec/bb.js'
-// import { Noir } from '@noir-lang/noir_js'
-// import circuit from '../circuit/anon_claim.json'
-async function generateProof(_inputs: {
+// Singletons — initialized lazily to avoid loading WASM at page load
+let _backend: UltraHonkBackend | null = null
+let _noir: Noir | null = null
+
+function getBackend(): UltraHonkBackend {
+  if (!_backend) _backend = new UltraHonkBackend(anonClaimCircuit.bytecode)
+  return _backend
+}
+
+function getNoir(): Noir {
+  if (!_noir) _noir = new Noir(anonClaimCircuit as unknown as CompiledCircuit)
+  return _noir
+}
+
+async function generateProof(inputs: {
   secret: `0x${string}`
   siblings: `0x${string}`[]
   pathIndices: number[]
@@ -32,13 +50,26 @@ async function generateProof(_inputs: {
   nullifier: `0x${string}`
   scope: `0x${string}`
   recipient: `0x${string}`
-}): Promise<{ proof: string; publicInputs: string[]; vkHash: string }> {
-  // Simulates the generating-proof loading state for UI development.
-  // Remove this stub and wire in real WASM proving before demo.
-  await new Promise(r => setTimeout(r, 500))
-  throw new Error(
-    'ZK proof generation not yet integrated. Compile the Noir circuit first, then wire @aztec/bb.js here.'
-  )
+}): Promise<{ proof: string; publicInputs: string[] }> {
+  // 1. Execute circuit to generate witness (pure JS, fast)
+  const { witness } = await getNoir().execute({
+    secret: inputs.secret,
+    path_indices: inputs.pathIndices.map(i => i.toString()),
+    siblings: inputs.siblings,
+    root: inputs.root,
+    nullifier: inputs.nullifier,
+    scope: inputs.scope,
+    recipient: inputs.recipient,
+  })
+
+  // 2. Generate UltraHonk proof from witness (WASM, takes a few seconds)
+  // keccak:true → oracle hash is keccak256, optimized for EVM verification
+  const proofData: ProofData = await getBackend().generateProof(witness, { keccak: true })
+
+  return {
+    proof: Buffer.from(proofData.proof).toString('hex'),
+    publicInputs: proofData.publicInputs,
+  }
 }
 
 export function ClaimFlow() {
@@ -63,19 +94,19 @@ export function ClaimFlow() {
       const res = await fetch('/api/commitments')
       const { commitments } = await res.json() as { commitments: `0x${string}`[] }
 
-      const commitment = deriveCommitment(secretHex)
+      const commitment = await deriveCommitment(secretHex)
       const leafIndex = commitments.indexOf(commitment)
       if (leafIndex === -1) {
         throw new Error('Your commitment is not in the registry. Did you complete registration?')
       }
 
-      const root = getRoot(commitments)
-      const { siblings, pathIndices } = getMerklePath(commitments, leafIndex)
-      const nullifier = deriveNullifier(secretHex, SCOPE)
+      const root = await getRoot(commitments)
+      const { siblings, pathIndices } = await getMerklePath(commitments, leafIndex)
+      const nullifier = await deriveNullifier(secretHex, SCOPE)
 
-      // 2. Generate proof (client-side WASM — stubbed until circuit is ready)
+      // 2. Generate UltraHonk proof client-side in the browser (WASM)
       setStep('generating')
-      const { proof, publicInputs, vkHash } = await generateProof({
+      const { proof, publicInputs } = await generateProof({
         secret: secretHex,
         siblings,
         pathIndices,
@@ -87,7 +118,7 @@ export function ClaimFlow() {
 
       // 3. Submit proof to Kurier via proxy
       setStep('submitting')
-      const { jobId } = await submitProofToKurier({ proof, publicInputs, vkHash })
+      const { jobId } = await submitProofToKurier({ proof, publicInputs, vkHash: VK_HASH })
 
       // 4. Poll until aggregated and published to Horizen's zkVerify domain
       setStep('polling')

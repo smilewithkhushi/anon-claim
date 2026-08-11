@@ -1,36 +1,120 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# anon-claim
 
-## Getting Started
+Anonymous reward claiming on Horizen using zero-knowledge proofs. Eligible wallets register a secret identity commitment, then later claim rewards from a fresh address — without revealing which registered wallet they belong to.
 
-First, run the development server:
+## How it works
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### Privacy model
+
+1. **Register** — Connect your eligible wallet. A secret is generated client-side (stays in your browser). Its Poseidon2 hash (`commitment = Poseidon2(secret)`) is submitted to a registry. Your wallet is never linked to the commitment on-chain.
+2. **Claim** — From any fresh wallet, enter your saved secret and a recipient address. The browser generates a UltraHonk ZK proof locally via Barretenberg WASM, proving:
+   - Your commitment is a leaf in the eligibility Merkle tree (depth 20).
+   - The nullifier (`Poseidon2(secret, scope)`) is correctly derived — preventing double-claims without revealing your leaf.
+   - The recipient address is bound into the proof — preventing front-running.
+3. **Settle** — The proof is submitted to Kurier, which aggregates it and publishes an attestation to Horizen's zkVerify domain. The claim contract then verifies the attestation on-chain.
+
+### ZK circuit
+
+Written in Noir (`circuit/src/main.nr`), compiled to UltraHonk. Two utility circuits in `circuit-utils/` mirror the circuit's internal hash functions so the frontend can compute commitments and Merkle paths that exactly match what the prover verifies:
+
+| Circuit | Function |
+|---|---|
+| `circuit-utils/hasher` | `Poseidon2([secret], 1)` — commitment derivation |
+| `circuit-utils/pair` | `Poseidon2([left, right], 2)` — Merkle node hashing |
+| `circuit/anon_claim` | Full proof: Merkle inclusion + nullifier + recipient binding |
+
+## Stack
+
+- **Next.js 16** (App Router) + **TypeScript** + **Tailwind CSS v4**
+- **Noir** (`@noir-lang/noir_js`) + **Barretenberg** (`@aztec/bb.js`) — client-side ZK proof generation
+- **wagmi** + **RainbowKit** + **viem** — wallet connection and on-chain interaction
+- **Kurier** — proof aggregation and zkVerify attestation
+- **Horizen Testnet** (chain ID 2651420) — target settlement chain
+
+## Project structure
+
+```
+circuit/            Noir circuit (anon_claim) — the main ZK program
+circuit-utils/      Two helper circuits (hasher, pair) used by the frontend
+  hasher/           Poseidon2([secret], 1)
+  pair/             Poseidon2([left, right], 2)
+app/
+  api/
+    commitments/    GET/POST commitment registry (file-backed for local dev)
+    kurier/         Server-side proxy to Kurier API (hides API key)
+components/
+  RegistrationFlow  Wallet connect → eligibility check → secret generation → commitment submission
+  ClaimFlow         Secret input → Merkle path lookup → proof generation → Kurier → on-chain claim
+lib/
+  crypto.ts         generateSecret, deriveCommitment, deriveNullifier (all via Noir WASM)
+  merkle.ts         Sparse incremental Merkle tree: getRoot, getMerklePath
+  kurier.ts         submitProofToKurier, pollJobStatus (client-side, hits proxy routes)
+  chains.ts         Horizen Testnet chain definition for viem/wagmi
+self/               Local dev persistence (commitments.json — not for production)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Getting started
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Prerequisites
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Node.js 20+
+- pnpm 10+
+- Nargo (Noir toolchain) — only needed to recompile the circuit
 
-## Learn More
+### Install
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+pnpm install
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Environment variables
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Create a `.env.local`:
 
-## Deploy on Vercel
+```bash
+# Kurier — proof aggregation service
+KURIER_API_URL=https://api-testnet.kurier.dev
+KURIER_API_KEY=your_kurier_key
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Set after deploying the claim contract
+NEXT_PUBLIC_CLAIM_CONTRACT=0x...
+NEXT_PUBLIC_CAMPAIGN_SCOPE=0x...   # Hash(contractAddress || campaignId)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Set after registering the VK with Kurier (/api/kurier/register-vk)
+NEXT_PUBLIC_VK_HASH=0x...
+
+# Optional: override default Horizen testnet RPC
+NEXT_PUBLIC_HORIZEN_RPC_URL=https://rpc-testnet.horizen.io
+```
+
+### Run locally
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+The commitment registry is backed by `self/commitments.json` for local development. This file is not suitable for shared or production deployments — replace the `GET`/`POST` handlers in `app/api/commitments/route.ts` with a persistent store (e.g. Neon, Vercel Blob).
+
+## Recompiling the circuit
+
+```bash
+cd circuit
+nargo compile
+```
+
+The compiled artifact (`circuit/target/anon_claim.json`) is committed so the frontend works without Nargo installed.
+
+```bash
+# Recompile utility circuits
+cd circuit-utils/hasher && nargo compile
+cd circuit-utils/pair   && nargo compile
+```
+
+## What's not wired yet
+
+- **On-chain claim** — `ClaimFlow.tsx` stubs out the `writeContract` call. Deploy the claim contract and fill in `CLAIM_CONTRACT`, the ABI, and `wagmi`'s `writeContract` call.
+- **Eligibility list** — `RegistrationFlow.tsx` has an empty `ELIGIBLE_ADDRESSES` array (open demo mode). Replace with an on-chain check or a signed allowlist.
+- **Persistent registry** — `app/api/commitments/route.ts` writes to a local file. Replace with a database before deploying to Vercel or any serverless host.
+- **VK registration** — Call `/api/kurier/register-vk` once after deploying to get `NEXT_PUBLIC_VK_HASH`.

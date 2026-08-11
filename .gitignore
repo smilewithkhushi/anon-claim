@@ -22,6 +22,10 @@
 
 /self
 
+# Noir circuit build artifacts
+circuit/target/
+circuit-utils/target/
+
 # misc
 .DS_Store
 *.pem

@@ -39,10 +39,12 @@ export function RegistrationFlow() {
   async function handleGenerateAndSubmit() {
     try {
       const newSecret = generateSecret()
-      const newCommitment = deriveCommitment(newSecret)
       setSecret(newSecret)
-      setCommitment(newCommitment)
       setStep('submit')
+
+      // deriveCommitment runs Poseidon2 via Noir.execute() — async, ~5ms
+      const newCommitment = await deriveCommitment(newSecret)
+      setCommitment(newCommitment)
 
       const res = await fetch('/api/commitments', {
         method: 'POST',
