@@ -11,12 +11,14 @@ export type KurierJobStatus =
 export interface KurierJob {
   jobId: string
   status: KurierJobStatus
-  attestationId?: string
-  merkleProof?: {
-    root: string
-    path: string[]
-    indices: number[]
-  }
+  // Fields populated once status === 'published'.
+  // Field names match the zkVerify aggregation proof structure returned by Kurier.
+  domainId?: number
+  aggregationId?: number
+  leaf?: string          // proof leaf hash — pass directly to the contract
+  merklePath?: string[]  // sibling hashes
+  leafCount?: number
+  index?: number         // this proof's leaf index in the batch
 }
 
 export interface SubmitProofResult {

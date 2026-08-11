@@ -125,24 +125,15 @@ export function ClaimFlow() {
       setStep('polling')
       const job: KurierJob = await pollJobStatus(jobId, (s) => setKurierStatus(s))
 
-      if (!job.attestationId || !job.merkleProof) {
-        throw new Error('Kurier job completed but missing attestation data.')
+      if (
+        job.domainId == null || job.aggregationId == null ||
+        !job.leaf || !job.merklePath || job.leafCount == null || job.index == null
+      ) {
+        throw new Error('Kurier job completed but missing aggregation data.')
       }
 
       // 5. Call claim contract on Horizen testnet
       setStep('claiming')
-      // merkleLeafIndex: decode the direction-bit array to an integer leaf position.
-      // indices[i] = 0 means the current node is the LEFT child at depth i.
-      // The leaf's absolute position = bit-string of indices interpreted as binary.
-      const merkleLeafIndex = job.merkleProof.indices.reduce(
-        (acc: bigint, bit: number, i: number) => acc | (BigInt(bit) << BigInt(i)),
-        0n,
-      )
-      // merkleLeafCount: 2^(path depth) gives the tree capacity used by zkVerify.
-      // TODO: verify against actual Kurier attestation docs — if Kurier returns the
-      // actual batch size separately, use that instead.
-      const merkleLeafCount = 1n << BigInt(job.merkleProof.path.length)
-
       const hash = await writeContractAsync({
         address: CLAIM_CONTRACT,
         abi: anonClaimAbi,
@@ -151,10 +142,12 @@ export function ClaimFlow() {
           nullifier as Hex,
           root as Hex,
           recipientHex,
-          BigInt(job.attestationId),
-          job.merkleProof.path as Hex[],
-          merkleLeafCount,
-          merkleLeafIndex,
+          BigInt(job.domainId),
+          BigInt(job.aggregationId),
+          job.leaf as Hex,
+          job.merklePath as Hex[],
+          BigInt(job.leafCount),
+          BigInt(job.index),
         ],
         chain: horizenTestnet,
       })
