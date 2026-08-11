@@ -8,21 +8,58 @@ export type KurierJobStatus =
   | 'published'
   | 'failed'
 
+// Raw shape returned by GET /job-status/:apiKey/:jobId
+interface KurierJobRaw {
+  jobId: string
+  status: string
+  domainId?: number
+  aggregationId?: number
+  aggregationDetails?: {
+    domainId?: number
+    leaf?: string
+    merkleProof?: string[]
+    numberOfLeaves?: number
+    leafIndex?: number
+  }
+}
+
+// Normalised shape used by ClaimFlow
 export interface KurierJob {
   jobId: string
   status: KurierJobStatus
-  // Fields populated once status === 'published'.
-  // Field names match the zkVerify aggregation proof structure returned by Kurier.
+  // Populated once status === 'Aggregated'
   domainId?: number
   aggregationId?: number
-  leaf?: string          // proof leaf hash — pass directly to the contract
-  merklePath?: string[]  // sibling hashes
+  leaf?: string
+  merklePath?: string[]
   leafCount?: number
-  index?: number         // this proof's leaf index in the batch
+  index?: number
 }
 
 export interface SubmitProofResult {
   jobId: string
+}
+
+function normaliseStatus(raw: string): KurierJobStatus {
+  const s = raw.toLowerCase()
+  if (s === 'aggregated' || s === 'finalized') return 'published'
+  if (s === 'failed') return 'failed'
+  if (s === 'valid' || s === 'includedinblock') return 'verifying'
+  return 'pending'
+}
+
+function normalise(raw: KurierJobRaw): KurierJob {
+  const ad = raw.aggregationDetails
+  return {
+    jobId: raw.jobId,
+    status: normaliseStatus(raw.status),
+    domainId: raw.domainId ?? ad?.domainId,
+    aggregationId: raw.aggregationId,
+    leaf: ad?.leaf,
+    merklePath: ad?.merkleProof,
+    leafCount: ad?.numberOfLeaves,
+    index: ad?.leafIndex,
+  }
 }
 
 // Client-side helpers — hit the Next.js proxy routes
@@ -39,7 +76,7 @@ export async function submitProofToKurier(payload: {
   })
   if (!res.ok) {
     const msg = await res.text()
-    throw new Error(`Kurier submit failed: ${msg}`)
+    throw new Error(`Failed to submit your proof for verification. ${msg}`)
   }
   return res.json()
 }
@@ -54,13 +91,14 @@ export async function pollJobStatus(
 
   while (Date.now() < deadline) {
     const res = await fetch(`/api/kurier/job-status/${jobId}`)
-    if (!res.ok) throw new Error(`Kurier poll failed: ${res.statusText}`)
-    const job: KurierJob = await res.json()
+    if (!res.ok) throw new Error('Lost connection while waiting for verification. Try again.')
+    const raw: KurierJobRaw = await res.json()
+    const job = normalise(raw)
     onStatus(job.status)
     if (job.status === 'published') return job
-    if (job.status === 'failed') throw new Error('Kurier job failed')
+    if (job.status === 'failed') throw new Error('Proof verification failed. Try again.')
     await new Promise(r => setTimeout(r, intervalMs))
   }
 
-  throw new Error('Kurier job timed out')
+  throw new Error('Verification is taking too long. Try again in a few minutes.')
 }

@@ -29,7 +29,7 @@ export function RegistrationFlow() {
   async function handleCheckEligibility() {
     if (!address) return
     if (!isEligible(address)) {
-      setError('This wallet is not on the eligible list.')
+      setError("This wallet isn't on the list. Try a different wallet, or contact us if you think this is a mistake.")
       setStep('error')
       return
     }
@@ -53,7 +53,7 @@ export function RegistrationFlow() {
       })
 
       if (res.status === 409) {
-        setError('This commitment is already registered — did you register before?')
+        setError("Looks like you've already registered. Use the claim code you saved when you first signed up.")
         setStep('error')
         return
       }
@@ -95,7 +95,7 @@ export function RegistrationFlow() {
   if (!isConnected) {
     return (
       <div className="space-y-4">
-        <p className="text-zinc-400 text-sm">Connect your eligible wallet to begin registration. Your wallet is only used to verify eligibility — it is not your claim identity.</p>
+        <p className="text-zinc-400 text-sm">Connect the wallet you were invited with. We'll check if you're on the list — this wallet won't be linked to your claim.</p>
         <ConnectButton />
       </div>
     )
@@ -111,7 +111,7 @@ export function RegistrationFlow() {
           onClick={handleCheckEligibility}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          Check Eligibility
+          Check if I'm on the list
         </button>
       </div>
     )
@@ -121,13 +121,13 @@ export function RegistrationFlow() {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/30 p-4 text-sm text-emerald-300">
-          Wallet is eligible. Generating your identity secret and commitment — this happens entirely in your browser.
+          You're on the list. We'll now create a private claim code just for you — this happens entirely in your browser and nothing is shared yet.
         </div>
         <button
           onClick={handleGenerateAndSubmit}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          Generate Identity &amp; Register
+          Create my claim code
         </button>
       </div>
     )
@@ -137,7 +137,7 @@ export function RegistrationFlow() {
     return (
       <div className="flex items-center gap-3 text-sm text-zinc-400">
         <Spinner />
-        Submitting commitment to registry…
+        Saving your spot…
       </div>
     )
   }
@@ -146,12 +146,12 @@ export function RegistrationFlow() {
     return (
       <div className="space-y-6">
         <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 p-4">
-          <p className="text-amber-300 font-semibold text-sm mb-1">Save your secret now — it cannot be recovered.</p>
-          <p className="text-amber-400/70 text-xs">This secret is the only way to generate your claim proof. Losing it means losing access to the claim permanently.</p>
+          <p className="text-amber-300 font-semibold text-sm mb-1">Save this code before you continue — we can't recover it for you.</p>
+          <p className="text-amber-400/70 text-xs">This is the only thing you need to collect your reward later. If you lose it, you won't be able to claim.</p>
         </div>
 
         <div>
-          <p className="text-xs text-zinc-500 mb-1 font-mono uppercase tracking-widest">Your identity secret</p>
+          <p className="text-xs text-zinc-500 mb-1 font-mono uppercase tracking-widest">Your claim code</p>
           <div className="font-mono text-xs break-all bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-emerald-400 select-all">
             {secret}
           </div>
@@ -176,12 +176,8 @@ export function RegistrationFlow() {
           onClick={() => setStep('done')}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          I've saved my secret →
+          I've saved it →
         </button>
-
-        {leafIndex !== null && (
-          <p className="text-xs text-zinc-500 font-mono">Leaf index in tree: {leafIndex}</p>
-        )}
       </div>
     )
   }
@@ -189,9 +185,8 @@ export function RegistrationFlow() {
   if (step === 'done') {
     return (
       <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/30 p-4 space-y-2">
-        <p className="text-emerald-300 font-semibold text-sm">Registration complete.</p>
-        <p className="text-zinc-400 text-xs">Your identity commitment is in the eligibility tree. When you're ready to claim, switch to the Claim tab and use your saved secret.</p>
-        <p className="text-zinc-500 text-xs mt-2">Commitment: <span className="font-mono text-zinc-400 break-all">{commitment}</span></p>
+        <p className="text-emerald-300 font-semibold text-sm">You're registered.</p>
+        <p className="text-zinc-400 text-xs">Your spot is saved. When you're ready to collect your reward, go to Step 2 — Claim and paste in your claim code. You can do this from any device, using any wallet.</p>
       </div>
     )
   }

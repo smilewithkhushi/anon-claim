@@ -14,9 +14,11 @@ import { anonClaimAbi } from '@/lib/abi'
 import anonClaimCircuit from '@/circuit/target/anon_claim.json'
 
 const CLAIM_CONTRACT = (process.env.NEXT_PUBLIC_CLAIM_CONTRACT ?? '0x0000000000000000000000000000000000000000') as `0x${string}`
-// Read from contract after deployment: cast call $CLAIM_CONTRACT "scope()(bytes32)"
 const SCOPE = (process.env.NEXT_PUBLIC_CAMPAIGN_SCOPE ?? '0x0000000000000000000000000000000000000000000000000000000000000001') as `0x${string}`
 const VK_HASH = process.env.NEXT_PUBLIC_VK_HASH ?? ''
+// domainId for the ZkVerifyAggregation contract on Horizen testnet.
+// Verify against AggregationPosted events after first successful proof submission.
+const ZK_VERIFY_DOMAIN_ID = BigInt(process.env.NEXT_PUBLIC_ZK_VERIFY_DOMAIN_ID ?? '2651420')
 
 type ClaimStep =
   | 'input'       // user enters secret + recipient
@@ -98,7 +100,7 @@ export function ClaimFlow() {
       const commitment = await deriveCommitment(secretHex)
       const leafIndex = commitments.indexOf(commitment)
       if (leafIndex === -1) {
-        throw new Error('Your commitment is not in the registry. Did you complete registration?')
+        throw new Error("This claim code isn't recognized. Did you complete Step 1 — Register first?")
       }
 
       const root = await getRoot(commitments)
@@ -126,10 +128,10 @@ export function ClaimFlow() {
       const job: KurierJob = await pollJobStatus(jobId, (s) => setKurierStatus(s))
 
       if (
-        job.domainId == null || job.aggregationId == null ||
+        job.aggregationId == null ||
         !job.leaf || !job.merklePath || job.leafCount == null || job.index == null
       ) {
-        throw new Error('Kurier job completed but missing aggregation data.')
+        throw new Error('Verification completed but returned incomplete data. Try again.')
       }
 
       // 5. Call claim contract on Horizen testnet
@@ -142,7 +144,7 @@ export function ClaimFlow() {
           nullifier as Hex,
           root as Hex,
           recipientHex,
-          BigInt(job.domainId),
+          job.domainId != null ? BigInt(job.domainId) : ZK_VERIFY_DOMAIN_ID,
           BigInt(job.aggregationId),
           job.leaf as Hex,
           job.merklePath as Hex[],
@@ -165,7 +167,7 @@ export function ClaimFlow() {
       <div className="space-y-6">
         <div>
           <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">
-            Your identity secret
+            Your claim code
           </label>
           <textarea
             value={secretInput}
@@ -175,13 +177,13 @@ export function ClaimFlow() {
             className="w-full font-mono text-xs bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 resize-none"
           />
           {secretInput && !secretValid && (
-            <p className="text-red-400 text-xs mt-1">Invalid secret format — should be 0x followed by 62 hex characters.</p>
+            <p className="text-red-400 text-xs mt-1">That doesn't look right — paste the full code you saved during registration.</p>
           )}
         </div>
 
         <div>
           <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">
-            Recipient address
+            Where should we send the reward?
           </label>
           <input
             type="text"
@@ -191,10 +193,10 @@ export function ClaimFlow() {
             className="w-full font-mono text-xs bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-500"
           />
           <p className="text-amber-400/80 text-xs mt-1">
-            Use a fresh wallet as recipient — not the wallet you used to register. Using the same wallet defeats the privacy model.
+            Use a different wallet than the one you registered with — sending to the same wallet links your identity and breaks your privacy.
           </p>
           {recipient && !recipientValid && (
-            <p className="text-red-400 text-xs mt-1">Invalid Ethereum address.</p>
+            <p className="text-red-400 text-xs mt-1">Enter a valid wallet address starting with 0x.</p>
           )}
         </div>
 
@@ -203,7 +205,7 @@ export function ClaimFlow() {
           disabled={!secretValid || !recipientValid}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed"
         >
-          Generate Proof &amp; Claim
+          Collect my reward
         </button>
       </div>
     )
@@ -214,10 +216,10 @@ export function ClaimFlow() {
       <div className="space-y-3">
         <div className="flex items-center gap-3 text-sm text-zinc-300">
           <Spinner />
-          <span>Generating zero-knowledge proof…</span>
+          <span>Creating your private proof…</span>
         </div>
         <p className="text-xs text-zinc-500">
-          Your browser is running the Barretenberg prover locally. This takes a few seconds. No data leaves your device during this step.
+          Your device is verifying that you're on the list — without revealing which wallet you are. This takes a few seconds and nothing leaves your browser.
         </p>
       </div>
     )
@@ -227,7 +229,7 @@ export function ClaimFlow() {
     return (
       <div className="flex items-center gap-3 text-sm text-zinc-300">
         <Spinner />
-        Submitting proof to Kurier…
+        Sending your proof for verification…
       </div>
     )
   }
@@ -237,14 +239,16 @@ export function ClaimFlow() {
       <div className="space-y-3">
         <div className="flex items-center gap-3 text-sm text-zinc-300">
           <Spinner />
-          <span>Waiting for on-chain settlement…</span>
+          <span>Waiting for on-chain confirmation…</span>
         </div>
         <p className="text-xs text-zinc-500">
-          Kurier is aggregating your proof with others and publishing to Horizen's zkVerify domain. This is a separate step from proof generation and can take up to a few minutes.
+          Your proof is being verified and recorded on-chain. This can take a couple of minutes — don't close this tab.
         </p>
-        {kurierStatus && (
-          <p className="text-xs font-mono text-zinc-400">
-            Status: <span className="text-emerald-400">{kurierStatus}</span>
+        {kurierStatus && kurierStatus !== 'pending' && (
+          <p className="text-xs text-zinc-500">
+            {kurierStatus === 'verifying' && 'Checking your proof…'}
+            {kurierStatus === 'aggregating' && 'Bundling with other claims…'}
+            {kurierStatus === 'published' && 'Confirmed on-chain ✓'}
           </p>
         )}
       </div>
@@ -255,7 +259,7 @@ export function ClaimFlow() {
     return (
       <div className="flex items-center gap-3 text-sm text-zinc-300">
         <Spinner />
-        Submitting on-chain claim transaction…
+        Sending your reward…
       </div>
     )
   }
@@ -263,10 +267,10 @@ export function ClaimFlow() {
   if (step === 'done') {
     return (
       <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/30 p-4 space-y-2">
-        <p className="text-emerald-300 font-semibold text-sm">Claim successful.</p>
-        <p className="text-zinc-400 text-xs">Your reward has been sent to the recipient address. The nullifier is now spent — this identity cannot claim again.</p>
+        <p className="text-emerald-300 font-semibold text-sm">Reward sent!</p>
+        <p className="text-zinc-400 text-xs">Your reward is on its way to the wallet you specified. This claim code has been used and can't be used again.</p>
         {txHash && (
-          <p className="text-xs font-mono text-zinc-500 break-all">Tx: {txHash}</p>
+          <p className="text-xs font-mono text-zinc-500 break-all">Transaction: {txHash}</p>
         )}
       </div>
     )

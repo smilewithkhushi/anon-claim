@@ -30,11 +30,11 @@ export function AnonCounter() {
             <span className="font-mono text-zinc-100">{count}</span>
             {' '}
             <span>
-              {count === 1 ? 'identity' : 'identities'} registered
+              {count === 1 ? 'person has registered' : 'people have registered'}
             </span>
             {count < 10 && count !== null && (
               <span className="ml-2 text-amber-400 text-xs">
-                — small anonymity set, consider waiting for more registrations
+                — the more people who register before you claim, the harder you are to trace
               </span>
             )}
           </>

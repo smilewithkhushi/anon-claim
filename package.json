@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "update-root": "npx tsx scripts/update-merkle-root.ts",
+    "register-vk": "npx tsx scripts/register-vk.ts"
   },
   "dependencies": {
     "@aztec/bb.js": "0.84.0",

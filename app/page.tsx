@@ -9,30 +9,27 @@ export default function Home() {
       <div className="w-full max-w-lg space-y-8">
         {/* Header */}
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono uppercase tracking-widest text-zinc-500">Horizen · zkVerify · Kurier</span>
-          </div>
           <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">
-            Anonymous Claim
+            Claim your reward privately
           </h1>
           <p className="text-sm text-zinc-400 leading-relaxed max-w-sm">
-            Prove you belong to an eligible set and claim a reward — without revealing which member you are.
+            You're on the list. Claim your reward to any wallet — without anyone being able to connect it back to you.
           </p>
         </div>
 
-        {/* Anonymity set counter */}
+        {/* Counter */}
         <AnonCounter />
 
-        {/* Privacy model note */}
+        {/* How privacy works */}
         <details className="group">
           <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-300 transition-colors list-none flex items-center gap-1">
             <span className="group-open:rotate-90 transition-transform inline-block">›</span>
-            What this actually hides (and what it doesn't)
+            How your privacy is protected
           </summary>
           <div className="mt-2 text-xs text-zinc-500 leading-relaxed space-y-1 pl-3 border-l border-zinc-800">
-            <p><span className="text-zinc-300">Hides:</span> which registered identity submitted the claim — the claim transaction cannot be linked back to the registration transaction.</p>
-            <p><span className="text-zinc-300">Does not hide:</span> that a claim happened, when it happened, or the wallet that received the reward.</p>
-            <p><span className="text-zinc-300">Anonymity set:</span> your real-world privacy depends on how many identities have registered before you claim. The counter above shows the current size.</p>
+            <p><span className="text-zinc-300">What stays private:</span> which wallet on the list made the claim — your registration and your claim can't be linked together.</p>
+            <p><span className="text-zinc-300">What's visible on-chain:</span> that a claim happened, when it happened, and which wallet received the reward.</p>
+            <p><span className="text-zinc-300">Your privacy gets stronger</span> the more people register before you claim. The counter above shows how many people are in the pool.</p>
           </div>
         </details>
 
@@ -40,8 +37,8 @@ export default function Home() {
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
           <TabSwitcher
             tabs={[
-              { id: 'register', label: 'Register', content: <RegistrationFlow /> },
-              { id: 'claim', label: 'Claim', content: <ClaimFlow /> },
+              { id: 'register', label: 'Step 1 — Register', content: <RegistrationFlow /> },
+              { id: 'claim', label: 'Step 2 — Claim', content: <ClaimFlow /> },
             ]}
           />
         </div>
