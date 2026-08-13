@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { isAddress, type Hex } from 'viem'
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { Noir } from '@noir-lang/noir_js'
@@ -9,23 +9,29 @@ import type { CompiledCircuit } from '@noir-lang/types'
 import { deriveCommitment, deriveNullifier } from '@/lib/crypto'
 import { getRoot, getMerklePath } from '@/lib/merkle'
 import { submitProofToKurier, pollJobStatus, type KurierJobStatus, type KurierJob } from '@/lib/kurier'
+import { useTechLog } from './TechLogContext'
 import { horizenTestnet } from '@/lib/chains'
 import { anonClaimAbi } from '@/lib/abi'
 import anonClaimCircuit from '@/circuit/target/anon_claim.json'
 
 const CLAIM_CONTRACT = (process.env.NEXT_PUBLIC_CLAIM_CONTRACT ?? '0x0000000000000000000000000000000000000000') as `0x${string}`
-const SCOPE = (process.env.NEXT_PUBLIC_CAMPAIGN_SCOPE ?? '0x0000000000000000000000000000000000000000000000000000000000000001') as `0x${string}`
-const VK_HASH = process.env.NEXT_PUBLIC_VK_HASH ?? ''
+
+// BN254 scalar field modulus — scope must be reduced to a valid field element before being
+// passed to the circuit, since keccak256-derived scopes can exceed the modulus.
+const _BN254_FR = BigInt('0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001')
+const _scopeRaw = process.env.NEXT_PUBLIC_CAMPAIGN_SCOPE ?? '0x0000000000000000000000000000000000000000000000000000000000000001'
+const SCOPE = ('0x' + (BigInt(_scopeRaw) % _BN254_FR).toString(16).padStart(64, '0')) as `0x${string}`
 // domainId for the ZkVerifyAggregation contract on Horizen testnet.
 // Verify against AggregationPosted events after first successful proof submission.
 const ZK_VERIFY_DOMAIN_ID = BigInt(process.env.NEXT_PUBLIC_ZK_VERIFY_DOMAIN_ID ?? '2651420')
 
+// Step type matches ClaimStep exported from TechLogContext
 type ClaimStep =
-  | 'input'       // user enters secret + recipient
-  | 'generating'  // client-side bb.js WASM proof generation (takes a few seconds)
-  | 'submitting'  // sending proof to Kurier
-  | 'polling'     // waiting for Kurier aggregation + zkVerify publication
-  | 'claiming'    // sending on-chain claim tx
+  | 'input'
+  | 'generating'
+  | 'submitting'
+  | 'polling'
+  | 'claiming'
   | 'done'
   | 'error'
 
@@ -64,11 +70,12 @@ async function generateProof(inputs: {
   })
 
   // 2. Generate UltraHonk proof from witness (WASM, takes a few seconds)
-  // keccak:true → oracle hash is keccak256, optimized for EVM verification
-  const proofData: ProofData = await getBackend().generateProof(witness, { keccak: true })
+  // No keccak option — zkVerify uses its native Rust verifier, not an EVM verifier,
+  // so the standard (non-keccak) transcript must be used.
+  const proofData: ProofData = await getBackend().generateProof(witness)
 
   return {
-    proof: Buffer.from(proofData.proof).toString('hex'),
+    proof: '0x' + Buffer.from(proofData.proof).toString('hex'),
     publicInputs: proofData.publicInputs,
   }
 }
@@ -82,6 +89,23 @@ export function ClaimFlow() {
   const [error, setError] = useState<string | null>(null)
 
   const { writeContractAsync } = useWriteContract()
+
+  const { setFlow, setClaimStep, setKurierStatus: setCtxKurierStatus } = useTechLog()
+
+  useEffect(() => {
+    setFlow('claim')
+    setClaimStep('input')
+  }, [setFlow, setClaimStep])
+
+  function updateStep(s: ClaimStep) {
+    setStep(s)
+    setClaimStep(s)
+  }
+
+  function updateKurierStatus(s: KurierJobStatus) {
+    setKurierStatus(s)
+    setCtxKurierStatus(s)
+  }
 
   const secretHex = secretInput.trim() as `0x${string}`
   const recipientHex = recipient.trim() as `0x${string}`
@@ -108,7 +132,7 @@ export function ClaimFlow() {
       const nullifier = await deriveNullifier(secretHex, SCOPE)
 
       // 2. Generate UltraHonk proof client-side in the browser (WASM)
-      setStep('generating')
+      updateStep('generating')
       const { proof, publicInputs } = await generateProof({
         secret: secretHex,
         siblings,
@@ -120,12 +144,12 @@ export function ClaimFlow() {
       })
 
       // 3. Submit proof to Kurier via proxy
-      setStep('submitting')
-      const { jobId } = await submitProofToKurier({ proof, publicInputs, vkHash: VK_HASH })
+      updateStep('submitting')
+      const { jobId } = await submitProofToKurier({ proof, publicInputs })
 
       // 4. Poll until aggregated and published to Horizen's zkVerify domain
-      setStep('polling')
-      const job: KurierJob = await pollJobStatus(jobId, (s) => setKurierStatus(s))
+      updateStep('polling')
+      const job: KurierJob = await pollJobStatus(jobId, updateKurierStatus)
 
       if (
         job.aggregationId == null ||
@@ -135,7 +159,7 @@ export function ClaimFlow() {
       }
 
       // 5. Call claim contract on Horizen testnet
-      setStep('claiming')
+      updateStep('claiming')
       const hash = await writeContractAsync({
         address: CLAIM_CONTRACT,
         abi: anonClaimAbi,
@@ -154,11 +178,11 @@ export function ClaimFlow() {
         chain: horizenTestnet,
       })
       setTxHash(hash)
-      setStep('done')
+      updateStep('done')
 
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
-      setStep('error')
+      updateStep('error')
     }
   }
 
@@ -283,7 +307,7 @@ export function ClaimFlow() {
           <p className="text-red-400 text-sm">{error}</p>
         </div>
         <button
-          onClick={() => { setStep('input'); setError(null); setKurierStatus(null) }}
+          onClick={() => { updateStep('input'); setError(null); setKurierStatus(null); setCtxKurierStatus(null) }}
           className="text-sm text-zinc-400 hover:text-zinc-200 underline"
         >
           Try again

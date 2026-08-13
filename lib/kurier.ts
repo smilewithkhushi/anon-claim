@@ -12,6 +12,8 @@ export type KurierJobStatus =
 interface KurierJobRaw {
   jobId: string
   status: string
+  reason?: string        // present when status === 'failed'
+  message?: string       // alternative error field name
   domainId?: number
   aggregationId?: number
   aggregationDetails?: {
@@ -27,6 +29,7 @@ interface KurierJobRaw {
 export interface KurierJob {
   jobId: string
   status: KurierJobStatus
+  reason?: string        // failure reason surfaced from Kurier
   // Populated once status === 'Aggregated'
   domainId?: number
   aggregationId?: number
@@ -53,6 +56,7 @@ function normalise(raw: KurierJobRaw): KurierJob {
   return {
     jobId: raw.jobId,
     status: normaliseStatus(raw.status),
+    reason: raw.reason ?? raw.message,
     domainId: raw.domainId ?? ad?.domainId,
     aggregationId: raw.aggregationId,
     leaf: ad?.leaf,
@@ -67,7 +71,6 @@ function normalise(raw: KurierJobRaw): KurierJob {
 export async function submitProofToKurier(payload: {
   proof: string
   publicInputs: string[]
-  vkHash: string
 }): Promise<SubmitProofResult> {
   const res = await fetch('/api/kurier/submit-proof', {
     method: 'POST',
@@ -96,7 +99,10 @@ export async function pollJobStatus(
     const job = normalise(raw)
     onStatus(job.status)
     if (job.status === 'published') return job
-    if (job.status === 'failed') throw new Error('Proof verification failed. Try again.')
+    if (job.status === 'failed') {
+      const detail = job.reason ? ` Reason: ${job.reason}` : ''
+      throw new Error(`Proof verification failed.${detail} Try again.`)
+    }
     await new Promise(r => setTimeout(r, intervalMs))
   }
 

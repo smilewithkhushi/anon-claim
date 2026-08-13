@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
 import { generateSecret, deriveCommitment } from '@/lib/crypto'
+import { useTechLog, type RegStep } from './TechLogContext'
 
 // TODO: replace with on-chain eligibility check once contract is deployed
 const ELIGIBLE_ADDRESSES: `0x${string}`[] = [
@@ -15,6 +16,17 @@ type Step = 'connect' | 'check' | 'generate' | 'submit' | 'backup' | 'done' | 'e
 export function RegistrationFlow() {
   const { address, isConnected } = useAccount()
   const [step, setStep] = useState<Step>('connect')
+  const { setFlow, setRegStep } = useTechLog()
+
+  useEffect(() => {
+    setFlow('registration')
+    setRegStep('connect')
+  }, [setFlow, setRegStep])
+
+  function updateStep(s: Step) {
+    setStep(s)
+    setRegStep(s as RegStep)
+  }
   const [secret, setSecret] = useState<`0x${string}` | null>(null)
   const [commitment, setCommitment] = useState<`0x${string}` | null>(null)
   const [leafIndex, setLeafIndex] = useState<number | null>(null)
@@ -30,17 +42,17 @@ export function RegistrationFlow() {
     if (!address) return
     if (!isEligible(address)) {
       setError("This wallet isn't on the list. Try a different wallet, or contact us if you think this is a mistake.")
-      setStep('error')
+      updateStep('error')
       return
     }
-    setStep('generate')
+    updateStep('generate')
   }
 
   async function handleGenerateAndSubmit() {
     try {
       const newSecret = generateSecret()
       setSecret(newSecret)
-      setStep('submit')
+      updateStep('submit')
 
       // deriveCommitment runs Poseidon2 via Noir.execute() — async, ~5ms
       const newCommitment = await deriveCommitment(newSecret)
@@ -54,7 +66,7 @@ export function RegistrationFlow() {
 
       if (res.status === 409) {
         setError("Looks like you've already registered. Use the claim code you saved when you first signed up.")
-        setStep('error')
+        updateStep('error')
         return
       }
       if (!res.ok) {
@@ -64,10 +76,10 @@ export function RegistrationFlow() {
 
       const { index } = await res.json()
       setLeafIndex(index)
-      setStep('backup')
+      updateStep('backup')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
-      setStep('error')
+      updateStep('error')
     }
   }
 
@@ -173,7 +185,7 @@ export function RegistrationFlow() {
         </div>
 
         <button
-          onClick={() => setStep('done')}
+          onClick={() => updateStep('done')}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors"
         >
           I've saved it →
@@ -198,7 +210,7 @@ export function RegistrationFlow() {
           <p className="text-red-400 text-sm">{error}</p>
         </div>
         <button
-          onClick={() => { setStep('connect'); setError(null) }}
+          onClick={() => { updateStep('connect'); setError(null) }}
           className="text-sm text-zinc-400 hover:text-zinc-200 underline"
         >
           Start over

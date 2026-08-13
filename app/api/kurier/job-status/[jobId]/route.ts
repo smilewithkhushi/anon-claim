@@ -10,5 +10,8 @@ export async function GET(
   const { jobId } = await params
   const res = await fetch(`${KURIER_BASE}/job-status/${KURIER_KEY}/${jobId}`)
   const data = await res.json()
+  if (data.status?.toLowerCase() === 'failed') {
+    console.error('[kurier/job-status] job failed:', JSON.stringify(data))
+  }
   return NextResponse.json(data, { status: res.status })
 }
