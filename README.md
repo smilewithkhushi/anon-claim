@@ -23,6 +23,40 @@ Written in Noir (`circuit/src/main.nr`), compiled to UltraHonk. Two utility circ
 | `circuit-utils/pair` | `Poseidon2([left, right], 2)` — Merkle node hashing |
 | `circuit/anon_claim` | Full proof: Merkle inclusion + nullifier + recipient binding |
 
+## Horizen
+
+The claim contract and zkVerify aggregation contract are deployed on **Horizen**, a L3 rollup settled on Base Sepolia that uses ETH as its native currency.
+
+| Network | Chain ID | RPC | Explorer |
+|---|---|---|---|
+| Testnet | `2651420` | `https://horizen-testnet.rpc.caldera.xyz/http` | https://explorer-testnet.horizen.io |
+| Mainnet | `26514` | `https://horizen.calderachain.xyz/http` | https://explorer.horizen.io |
+
+**Why Horizen?** Horizen ships a native `zkVerify` infrastructure layer — an on-chain aggregation contract (`ZkVerifyAggregation` proxy at `0xCC02D0A54F3184dF4c88811E5b9FAb7ff8131e4a` on testnet) that verifiers can query to check whether a proof has been attested. This lets the `AnonClaim` settlement contract skip re-verifying the UltraHonk proof itself; it only needs to confirm that Kurier published a valid attestation for the proof leaf hash, which is dramatically cheaper on-chain.
+
+## Kurier
+
+[Kurier](https://kurier.xyz) is the off-chain proof aggregation service that bridges browser-generated ZK proofs into Horizen's zkVerify system.
+
+**What it does in this project:**
+
+1. The browser generates a UltraHonk proof (via Barretenberg WASM) for the user's claim.
+2. The proof, public inputs, and verification key are posted to `/api/kurier/submit-proof` (a server-side proxy that hides the API key).
+3. The proxy forwards to `POST https://api-testnet.kurier.xyz/api/v1/submit-proof/{key}` with:
+   - `proofType: "ultrahonk"` + `proofOptions: { variant: "zk", version: "v0_84" }`
+   - `chainId: 2651420` (Horizen testnet) — tells Kurier which chain to publish the attestation on
+   - The full VK bytes inline (`vkRegistered: false`) so no separate VK registration step is required
+4. Kurier aggregates the proof and publishes an attestation leaf on Horizen's zkVerify domain.
+5. The frontend polls `/api/kurier/job-status/{jobId}` until the job is settled, then reads the attestation details.
+6. The `AnonClaim` contract verifies the attestation via `ZkVerifyAggregation` and pays the recipient.
+
+**Environment variables needed:**
+
+```bash
+KURIER_API_URL=https://api-testnet.kurier.xyz/api/v1
+KURIER_TESTNET_API_KEY=your_kurier_key
+```
+
 ## Stack
 
 - **Next.js 16** (App Router) + **TypeScript** + **Tailwind CSS v4**
@@ -129,10 +163,25 @@ pnpm register-vk
 DIRECT=1 pnpm register-vk
 ```
 
+## Deploying the claim contract
+
+Deploy `contracts/src/AnonClaim.sol` to Horizen testnet (chain ID `2651420`). The contract hard-codes two values that must be correct at deploy time — they cannot be changed after deployment:
+
+| Constant | Value |
+|---|---|
+| `ZK_VERIFY` (proxy) | `0xCC02D0A54F3184dF4c88811E5b9FAb7ff8131e4a` |
+| zkVerify domain ID (passed by the frontend at claim time) | `175` |
+
+> **Do not use `0x03225ff1ff4F1BAc6e81BB6317006A509422D51C`** — that is the implementation contract behind the proxy. Its `proofsAggregations` mapping is always empty, so `verifyProofAggregation` returns `false` silently and every `claim()` reverts.
+
+After deployment:
+1. Set `NEXT_PUBLIC_CLAIM_CONTRACT` to the new address.
+2. Set `NEXT_PUBLIC_CAMPAIGN_SCOPE` — read it with `cast call $CONTRACT "scope()(bytes32)" --rpc-url $RPC`.
+3. Fund the contract with `rewardAmount × eligibleCount` ETH.
+4. Run `pnpm update-root` to push the current Merkle root on-chain.
+
 ## What's not wired yet
 
-- **Deploy the claim contract** — `contracts/src/AnonClaim.sol` is ready. Deploy to Horizen testnet, then set `NEXT_PUBLIC_CLAIM_CONTRACT`, `NEXT_PUBLIC_CAMPAIGN_SCOPE` (read from `contract.scope()`), and fund the contract with `rewardAmount × eligibleCount` ETH.
-- **Merkle root update** — After registrations accumulate, run `pnpm update-root` (or call `contract.setMerkleRoot(newRoot)` directly from the owner wallet).
+- **Merkle root update** — After registrations accumulate, run `pnpm update-root` (or call `contract.setMerkleRoot(newRoot)` directly from the owner wallet). Wire this into whatever appends to `self/commitments.json` so they can't drift.
 - **Eligibility list** — `RegistrationFlow.tsx` has an empty `ELIGIBLE_ADDRESSES` array (open demo mode). Replace with an on-chain check or a signed allowlist.
 - **Persistent registry** — `app/api/commitments/route.ts` writes to a local file. Replace with a database before deploying to Vercel or any serverless host.
-- **zkVerify interface** — `contracts/src/interfaces/IZkVerifyAggregation.sol` and the leaf-hash encoding in `AnonClaim._proofLeaf()` must be verified against the deployed Horizen zkVerify contract ABI before going live.

@@ -45,9 +45,12 @@ export interface SubmitProofResult {
 
 function normaliseStatus(raw: string): KurierJobStatus {
   const s = raw.toLowerCase()
-  if (s === 'aggregated' || s === 'finalized') return 'published'
+  // 'aggregated' is the terminal state when chainId is set — aggregationDetails is populated here.
+  // 'aggregationpublished' follows aggregated; handle it too in case polling skips ahead.
+  if (s === 'aggregated' || s === 'aggregationpublished' || s === 'finalized') return 'published'
   if (s === 'failed') return 'failed'
-  if (s === 'valid' || s === 'includedinblock') return 'verifying'
+  if (s === 'aggregationpending') return 'aggregating'
+  if (s === 'valid' || s === 'includedinblock' || s === 'submitted') return 'verifying'
   return 'pending'
 }
 

@@ -30,9 +30,11 @@ contract AnonClaim {
     // Constants
     // -------------------------------------------------------------------------
 
-    /// @notice ZkVerifyAggregation contract on Horizen testnet.
+    /// @notice ZkVerifyAggregation proxy contract on Horizen testnet.
+    ///         This is the ERC1967Proxy (0xCC02D0A5...) — NOT the implementation (0x03225ff1...).
+    ///         The implementation's proofsAggregations mapping is always empty; only the proxy holds state.
     IZkVerifyAggregation public constant ZK_VERIFY =
-        IZkVerifyAggregation(0x03225ff1ff4F1BAc6e81BB6317006A509422D51C);
+        IZkVerifyAggregation(0xCC02D0A54F3184dF4c88811E5b9FAb7ff8131e4a);
 
     // -------------------------------------------------------------------------
     // Immutables

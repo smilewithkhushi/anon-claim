@@ -22,8 +22,8 @@ const _BN254_FR = BigInt('0x30644e72e131a029b85045b68181585d2833e84879b9709143e1
 const _scopeRaw = process.env.NEXT_PUBLIC_CAMPAIGN_SCOPE ?? '0x0000000000000000000000000000000000000000000000000000000000000001'
 const SCOPE = ('0x' + (BigInt(_scopeRaw) % _BN254_FR).toString(16).padStart(64, '0')) as `0x${string}`
 // domainId for the ZkVerifyAggregation contract on Horizen testnet.
-// Verify against AggregationPosted events after first successful proof submission.
-const ZK_VERIFY_DOMAIN_ID = BigInt(process.env.NEXT_PUBLIC_ZK_VERIFY_DOMAIN_ID ?? '2651420')
+// 175 (0xaf) — confirmed from AggregationPosted events. Separate from chain ID (2651420).
+const ZK_VERIFY_DOMAIN_ID = BigInt(process.env.NEXT_PUBLIC_ZK_VERIFY_DOMAIN_ID ?? '175')
 
 // Step type matches ClaimStep exported from TechLogContext
 type ClaimStep =

@@ -39,13 +39,25 @@ export async function POST(req: NextRequest) {
     proofType: 'ultrahonk',
     vkRegistered: false,
     chainId: HORIZEN_CHAIN_ID,
-    proofOptions: { variant: 'zk', version: 'v0_84' },
+    // Uppercase enum values required — Kurier silently drops lowercase values.
+    // numberOfPublicInputs omitted — may cause schema rejection of the whole object.
+    proofOptions: { variant: 'ZK', version: 'V0_84' },
     proofData: {
       proof,
       publicSignals: publicInputs,
       vk: vkToUse,
     },
   }
+
+  // Log the exact outgoing payload so we can confirm proofOptions survives serialization.
+  console.log('[kurier/submit-proof] outgoing payload:', JSON.stringify({
+    ...kurierPayload,
+    proofData: {
+      proof: kurierPayload.proofData.proof.slice(0, 10) + '…',
+      publicSignals: kurierPayload.proofData.publicSignals,
+      vk: kurierPayload.proofData.vk.slice(0, 10) + '…',
+    },
+  }))
 
   const res = await fetch(`${KURIER_BASE}/submit-proof/${KURIER_KEY}`, {
     method: 'POST',
@@ -54,8 +66,11 @@ export async function POST(req: NextRequest) {
   })
 
   const data = await res.json()
+  // Log the full submit response — optimisticVerify tells us whether Kurier accepted the proof
+  // bytes before aggregation. 'success' = proof is fine, failure is in options/routing.
+  console.log('[kurier/submit-proof] response status:', res.status, '| body:', JSON.stringify(data))
   if (!res.ok) {
-    console.error('[kurier/submit-proof] error:', JSON.stringify(data))
+    console.error('[kurier/submit-proof] submit failed')
   }
   return NextResponse.json(data, { status: res.status })
 }

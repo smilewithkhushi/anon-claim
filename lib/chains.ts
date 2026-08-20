@@ -1,8 +1,9 @@
 import { defineChain } from 'viem'
 
-// ZkVerifyAggregation contract on Horizen testnet (L3 on Base Sepolia)
-// https://explorer-testnet.horizen.io/address/0x03225ff1ff4F1BAc6e81BB6317006A509422D51C?tab=contract
-export const ZK_VERIFY_AGGREGATION_ADDRESS = '0x03225ff1ff4F1BAc6e81BB6317006A509422D51C' as const
+// ZkVerifyAggregation PROXY on Horizen testnet — this is the address that holds aggregation state.
+// Implementation (0x03225ff1...) is behind this proxy; calling the implementation directly returns empty data.
+// https://explorer-testnet.horizen.io/address/0xCC02D0A54F3184dF4c88811E5b9FAb7ff8131e4a?tab=contract
+export const ZK_VERIFY_AGGREGATION_ADDRESS = '0xCC02D0A54F3184dF4c88811E5b9FAb7ff8131e4a' as const
 
 export const horizenTestnet = defineChain({
   id: 2651420,
