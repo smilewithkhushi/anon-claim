@@ -1,6 +1,6 @@
 # anon-claim
 
-Anonymous reward claiming on Horizen using zero-knowledge proofs. Eligible wallets register a secret identity commitment, then later claim rewards from a fresh address — without revealing which registered wallet they belong to.
+Anonymous reward claiming on Horizen blockchain using zero-knowledge proofs. Eligible wallets register a secret identity commitment, then later claim rewards from a fresh address — without revealing which registered wallet they belong to.
 
 ## How it works
 

@@ -57,7 +57,7 @@ async function generateProof(inputs: {
   nullifier: `0x${string}`
   scope: `0x${string}`
   recipient: `0x${string}`
-}): Promise<{ proof: string; publicInputs: string[] }> {
+}): Promise<{ proof: string; publicInputs: string[]; vk: string }> {
   // 1. Execute circuit to generate witness (pure JS, fast)
   const { witness } = await getNoir().execute({
     secret: inputs.secret,
@@ -70,13 +70,23 @@ async function generateProof(inputs: {
   })
 
   // 2. Generate UltraHonk proof from witness (WASM, takes a few seconds)
-  // No keccak option — zkVerify uses its native Rust verifier, not an EVM verifier,
-  // so the standard (non-keccak) transcript must be used.
-  const proofData: ProofData = await getBackend().generateProof(witness)
+  // keccak: true — Kurier's Legacy.ZK format (the only accepted variant for ultrahonk)
+  // requires keccak-oracle transcript. VK is also generated with --oracle_hash keccak.
+  const proofData: ProofData = await getBackend().generateProof(witness, { keccak: true })
+
+  // 3. Verify proof locally before sending to Kurier (fast, ~0.1s).
+  // If this fails the proof is invalid — circuit/witness bug, not a Kurier issue.
+  const isValid = await getBackend().verifyProof(proofData, { keccak: true })
+  if (!isValid) throw new Error('Proof failed local verification. The circuit witness may be inconsistent.')
+
+  // 4. Fetch the VK bytes that bb.js uses internally. Sending these to Kurier
+  // ensures byte-perfect consistency — no CLI-vs-WASM divergence possible.
+  const vkBytes: Uint8Array = await getBackend().getVerificationKey({ keccak: true })
 
   return {
     proof: '0x' + Buffer.from(proofData.proof).toString('hex'),
     publicInputs: proofData.publicInputs,
+    vk: '0x' + Buffer.from(vkBytes).toString('hex'),
   }
 }
 
@@ -133,7 +143,7 @@ export function ClaimFlow() {
 
       // 2. Generate UltraHonk proof client-side in the browser (WASM)
       updateStep('generating')
-      const { proof, publicInputs } = await generateProof({
+      const { proof, publicInputs, vk } = await generateProof({
         secret: secretHex,
         siblings,
         pathIndices,
@@ -145,7 +155,7 @@ export function ClaimFlow() {
 
       // 3. Submit proof to Kurier via proxy
       updateStep('submitting')
-      const { jobId } = await submitProofToKurier({ proof, publicInputs })
+      const { jobId } = await submitProofToKurier({ proof, publicInputs, vk })
 
       // 4. Poll until aggregated and published to Horizen's zkVerify domain
       updateStep('polling')

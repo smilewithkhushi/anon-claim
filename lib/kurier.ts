@@ -71,6 +71,7 @@ function normalise(raw: KurierJobRaw): KurierJob {
 export async function submitProofToKurier(payload: {
   proof: string
   publicInputs: string[]
+  vk?: string
 }): Promise<SubmitProofResult> {
   const res = await fetch('/api/kurier/submit-proof', {
     method: 'POST',

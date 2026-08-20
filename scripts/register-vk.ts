@@ -26,7 +26,7 @@ async function main() {
   const body = JSON.stringify({
     vk: vkHex,
     proofType: 'ultrahonk',
-    proofOptions: { variant: 'zk' },
+    proofOptions: { variant: 'zk', version: 'v0_84' },
   })
 
   let res: Response

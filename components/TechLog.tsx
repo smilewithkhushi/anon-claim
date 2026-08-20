@@ -171,7 +171,7 @@ function Badge({ label, color, dim }: { label: string; color: string; dim: boole
 function StatusDot({ status }: { status: Status }) {
   if (status === 'done') {
     return (
-      <div className="w-[18px] h-[18px] rounded-full bg-emerald-900/60 border border-emerald-600/60 flex items-center justify-center shrink-0">
+      <div className="w-4.5 h-4.5 rounded-full bg-emerald-900/60 border border-emerald-600/60 flex items-center justify-center shrink-0">
         <svg className="w-2.5 h-2.5 text-emerald-400" viewBox="0 0 12 12" fill="none">
           <path d="M2 6.5l2.5 2.5 5.5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -180,7 +180,7 @@ function StatusDot({ status }: { status: Status }) {
   }
   if (status === 'active') {
     return (
-      <div className="w-[18px] h-[18px] rounded-full border border-amber-500/60 bg-amber-900/20 flex items-center justify-center shrink-0">
+      <div className="w-4.5 h-4.5 rounded-full border border-amber-500/60 bg-amber-900/20 flex items-center justify-center shrink-0">
         <svg className="animate-spin w-3 h-3 text-amber-400" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -189,7 +189,7 @@ function StatusDot({ status }: { status: Status }) {
     )
   }
   return (
-    <div className="w-[18px] h-[18px] rounded-full border border-zinc-800 bg-zinc-900/60 shrink-0" />
+    <div className="w-4.5 h-4.5 rounded-full border border-zinc-800 bg-zinc-900/60 shrink-0" />
   )
 }
 
@@ -228,7 +228,7 @@ export function TechLog() {
         </div>
       ) : (
         <div className="relative">
-          <div className="absolute left-[8px] top-3 bottom-3 w-px bg-zinc-800/80" />
+          <div className="absolute left-2 top-3 bottom-3 w-px bg-zinc-800/80" />
           <div className="space-y-5">
             {entries.map((entry) => (
               <div key={entry.id} className="flex gap-3">
