@@ -1,11 +1,23 @@
-use dep::std::hash::poseidon2::Poseidon2;
+// 2^64: IV = message_size * TWO64 in the Poseidon2 sponge capacity slot
+global TWO64: Field = 18446744073709551616;
 
 // Depth must match TREE_DEPTH in lib/merkle.ts
 global DEPTH: u32 = 20;
 
+// hash([input], 1) using the public poseidon2_permutation builtin.
+// Equivalent to the private Poseidon2::hash([input], 1) from std::hash::poseidon2.
+fn p2_hash_1(input: Field) -> Field {
+    std::hash::poseidon2_permutation([input, 0, 0, TWO64], 4)[0]
+}
+
+// hash([a, b], 2): used for Merkle nodes and nullifiers.
+fn p2_hash_2(a: Field, b: Field) -> Field {
+    std::hash::poseidon2_permutation([a, b, 0, TWO64 * 2], 4)[0]
+}
+
 // Hash two field elements into one Merkle node using Poseidon2.
 fn merkle_hash(left: Field, right: Field) -> Field {
-    Poseidon2::hash([left, right], 2)
+    p2_hash_2(left, right)
 }
 
 // Recompute the Merkle root from a leaf and its authentication path.
@@ -13,11 +25,11 @@ fn merkle_hash(left: Field, right: Field) -> Field {
 //   path_indices[i] = 1  =>  current node is the RIGHT child at depth i
 fn compute_merkle_root(
     leaf: Field,
-    path_indices: [u1; 20],
-    siblings: [Field; 20],
+    path_indices: [u1; DEPTH],
+    siblings: [Field; DEPTH],
 ) -> Field {
     let mut current = leaf;
-    for i in 0..20 {
+    for i in 0..DEPTH {
         let is_right = path_indices[i] == 1;
         let (left, right) = if is_right {
             (siblings[i], current)
@@ -52,8 +64,8 @@ fn compute_merkle_root(
 fn main(
     // private
     secret: Field,
-    path_indices: [u1; 20],
-    siblings: [Field; 20],
+    path_indices: [u1; DEPTH],
+    siblings: [Field; DEPTH],
     // public
     root: pub Field,
     nullifier: pub Field,
@@ -61,7 +73,7 @@ fn main(
     recipient: pub Field,
 ) {
     // 1. commitment = Poseidon2(secret)
-    let commitment = Poseidon2::hash([secret], 1);
+    let commitment = p2_hash_1(secret);
 
     // 2. Prove commitment is a leaf in the eligibility tree
     let computed_root = compute_merkle_root(commitment, path_indices, siblings);
@@ -70,7 +82,7 @@ fn main(
     // 3. Verify nullifier = Poseidon2(secret, scope)
     //    scope is campaign-specific, so nullifiers from different campaigns
     //    cannot be replayed against each other
-    let computed_nullifier = Poseidon2::hash([secret, scope], 2);
+    let computed_nullifier = p2_hash_2(secret, scope);
     assert(computed_nullifier == nullifier, "Invalid nullifier");
 
     // 4. Sanity check: recipient must be non-zero
@@ -84,8 +96,8 @@ fn main(
 #[test]
 fn test_commitment_deterministic() {
     let secret: Field = 0x123456789abcdef;
-    let c1 = Poseidon2::hash([secret], 1);
-    let c2 = Poseidon2::hash([secret], 1);
+    let c1 = p2_hash_1(secret);
+    let c2 = p2_hash_1(secret);
     assert(c1 == c2);
     assert(c1 != 0);
     assert(c1 != secret);
@@ -96,8 +108,8 @@ fn test_nullifier_scope_isolation() {
     let secret: Field = 0x123456789abcdef;
     let scope1: Field = 0xdeadbeef;
     let scope2: Field = 0xcafebabe;
-    let n1 = Poseidon2::hash([secret, scope1], 2);
-    let n2 = Poseidon2::hash([secret, scope2], 2);
+    let n1 = p2_hash_2(secret, scope1);
+    let n2 = p2_hash_2(secret, scope2);
     assert(n1 != n2);
 }
 

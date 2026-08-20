@@ -139,9 +139,9 @@ function buildClaimEntries(
     },
     {
       id: 'claim',
-      label: 'claim() on Horizen EON',
+      label: 'claim() on Horizen',
       desc: 'Smart contract verifies the aggregation proof and records your nullifier on-chain',
-      badges: [{ label: 'Horizen EON', color: 'teal' }, { label: 'Solidity', color: 'zinc' }],
+      badges: [{ label: 'Horizen', color: 'teal' }, { label: 'Solidity', color: 'zinc' }],
       status: rs(i, 5, 4),
     },
   ]
@@ -200,7 +200,7 @@ Kurier (Horizen)
   ↓ aggregation job
 zkVerify
   ↓ published on-chain
-Horizen EON
+Horizen
   ↓ claim() verified
 Your wallet ✓`
 

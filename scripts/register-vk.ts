@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+process.loadEnvFile('.env')
 /**
  * Registers the UltraHonk VK with Kurier and prints the vkHash + domainId
  * to set in .env.local.

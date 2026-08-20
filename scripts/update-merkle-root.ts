@@ -4,10 +4,12 @@
  * the on-chain merkleRoot via setMerkleRoot().
  *
  * Usage:
- *   PRIVATE_KEY=0x... npx tsx scripts/update-merkle-root.ts
+ *   pnpm update-root          (reads PRIVATE_KEY from .env)
+ *   PRIVATE_KEY=0x... pnpm update-root
  *
  * Without PRIVATE_KEY: prints the cast command instead of sending.
  */
+process.loadEnvFile('.env')
 import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
@@ -21,7 +23,7 @@ const pairCircuit: CompiledCircuit = JSON.parse(
 )
 
 const CONTRACT = process.env.NEXT_PUBLIC_CLAIM_CONTRACT ?? '0x7BF490F5f28A1eE44C00C21A95c6a10d5722Ca40'
-const RPC      = process.env.NEXT_PUBLIC_HORIZEN_RPC_URL ?? 'https://rpc-testnet.horizen.io'
+const RPC      = process.env.NEXT_PUBLIC_HORIZEN_RPC_URL ?? 'https://horizen-testnet.rpc.caldera.xyz/http'
 
 // ---------------------------------------------------------------------------
 // Poseidon2 Merkle tree — mirrors lib/merkle.ts exactly

@@ -11,7 +11,7 @@ Anonymous reward claiming on Horizen using zero-knowledge proofs. Eligible walle
    - Your commitment is a leaf in the eligibility Merkle tree (depth 20).
    - The nullifier (`Poseidon2(secret, scope)`) is correctly derived — preventing double-claims without revealing your leaf.
    - The recipient address is bound into the proof — preventing front-running.
-3. **Settle** — The proof is submitted to Kurier, which aggregates it and publishes an attestation to Horizen's zkVerify domain. The claim contract then verifies the attestation on-chain.
+3. **Settle** — The proof is submitted to Kurier, which aggregates it and publishes an attestation to Horizen's zkVerify domain. The claim contract verifies the attestation on-chain and pays ETH to the recipient.
 
 ### ZK circuit
 
@@ -29,7 +29,7 @@ Written in Noir (`circuit/src/main.nr`), compiled to UltraHonk. Two utility circ
 - **Noir** (`@noir-lang/noir_js`) + **Barretenberg** (`@aztec/bb.js`) — client-side ZK proof generation
 - **wagmi** + **RainbowKit** + **viem** — wallet connection and on-chain interaction
 - **Kurier** — proof aggregation and zkVerify attestation
-- **Horizen Testnet** (chain ID 2651420) — target settlement chain
+- **Horizen L3** (chain ID 2651420 testnet / 26514 mainnet) — Caldera rollup on Base Sepolia; uses ETH as native currency
 
 ## Project structure
 
@@ -45,12 +45,19 @@ app/
 components/
   RegistrationFlow  Wallet connect → eligibility check → secret generation → commitment submission
   ClaimFlow         Secret input → Merkle path lookup → proof generation → Kurier → on-chain claim
+  TechLog           Step-by-step progress panel shown during registration and claim flows
+  AnonCounter       Live on-chain count of registered commitments
 lib/
   crypto.ts         generateSecret, deriveCommitment, deriveNullifier (all via Noir WASM)
   merkle.ts         Sparse incremental Merkle tree: getRoot, getMerklePath
   kurier.ts         submitProofToKurier, pollJobStatus (client-side, hits proxy routes)
-  chains.ts         Horizen Testnet chain definition for viem/wagmi
+  chains.ts         Horizen L3 chain definitions for viem/wagmi
+scripts/
+  register-vk.ts    Registers the UltraHonk VK with Kurier (optional — VK is inlined by default)
+  update-merkle-root.ts  Recomputes Merkle root from commitments and calls setMerkleRoot on-chain
 self/               Local dev persistence (commitments.json — not for production)
+contracts/
+  src/AnonClaim.sol  On-chain settlement contract
 ```
 
 ## Getting started
@@ -73,18 +80,15 @@ Create a `.env.local`:
 
 ```bash
 # Kurier — proof aggregation service
-KURIER_API_URL=https://api-testnet.kurier.dev
-KURIER_API_KEY=your_kurier_key
+KURIER_API_URL=https://api-testnet.kurier.xyz/api/v1
+KURIER_TESTNET_API_KEY=your_kurier_key
 
 # Set after deploying the claim contract
 NEXT_PUBLIC_CLAIM_CONTRACT=0x...
-NEXT_PUBLIC_CAMPAIGN_SCOPE=0x...   # Hash(contractAddress || campaignId)
-
-# Set after registering the VK with Kurier (/api/kurier/register-vk)
-NEXT_PUBLIC_VK_HASH=0x...
+NEXT_PUBLIC_CAMPAIGN_SCOPE=0x...   # keccak256(abi.encode(contractAddress, campaignId)) — read from contract.scope()
 
 # Optional: override default Horizen testnet RPC
-NEXT_PUBLIC_HORIZEN_RPC_URL=https://rpc-testnet.horizen.io
+NEXT_PUBLIC_HORIZEN_RPC_URL=https://horizen-testnet.rpc.caldera.xyz/http
 ```
 
 ### Run locally
@@ -109,14 +113,26 @@ cd circuit-utils/pair   && nargo compile && cd ../..
 
 This produces:
 - `circuit/target/anon_claim.json` — ACIR bytecode loaded by the frontend prover
-- `circuit/target/vk/vk` — UltraHonk verification key (needed for Kurier VK registration)
+- `circuit/target/vk/vk` — UltraHonk verification key (inlined into each Kurier submission)
 - `circuit-utils/target/hasher.json` and `circuit-utils/target/pair_hasher.json` — used by `lib/crypto.ts` and `lib/merkle.ts`
+
+## Scripts
+
+```bash
+# Recompute Merkle root from self/commitments.json and update it on-chain
+PRIVATE_KEY=0x... pnpm update-root
+
+# (Optional) Register VK with Kurier and print the returned vkHash + domainId
+# Not required for the default flow — the VK is read from disk and inlined per-request
+pnpm register-vk
+# Or hit Kurier directly (without the dev server):
+DIRECT=1 pnpm register-vk
+```
 
 ## What's not wired yet
 
-- **Deploy the claim contract** — `contracts/src/AnonClaim.sol` is ready. Deploy to Horizen testnet, then set `NEXT_PUBLIC_CLAIM_CONTRACT`, `NEXT_PUBLIC_CAMPAIGN_SCOPE` (read from `contract.scope()`), and fund the contract with `rewardAmount × eligibleCount` ZEN.
-- **VK registration** — Call `/api/kurier/register-vk` once after compiling the circuit to get `NEXT_PUBLIC_VK_HASH`. Pass the path to `circuit/target/vk/vk`.
-- **Merkle root update** — After registrations accumulate, call `contract.setMerkleRoot(newRoot)` from the owner wallet and update `NEXT_PUBLIC_MERKLE_ROOT` in `.env.local`.
+- **Deploy the claim contract** — `contracts/src/AnonClaim.sol` is ready. Deploy to Horizen testnet, then set `NEXT_PUBLIC_CLAIM_CONTRACT`, `NEXT_PUBLIC_CAMPAIGN_SCOPE` (read from `contract.scope()`), and fund the contract with `rewardAmount × eligibleCount` ETH.
+- **Merkle root update** — After registrations accumulate, run `pnpm update-root` (or call `contract.setMerkleRoot(newRoot)` directly from the owner wallet).
 - **Eligibility list** — `RegistrationFlow.tsx` has an empty `ELIGIBLE_ADDRESSES` array (open demo mode). Replace with an on-chain check or a signed allowlist.
 - **Persistent registry** — `app/api/commitments/route.ts` writes to a local file. Replace with a database before deploying to Vercel or any serverless host.
-- **zkVerify interface** — `contracts/src/interfaces/IZkVerify.sol` and the leaf-hash encoding in `AnonClaim._proofLeaf()` must be verified against the deployed Horizen zkVerify contract ABI before going live.
+- **zkVerify interface** — `contracts/src/interfaces/IZkVerifyAggregation.sol` and the leaf-hash encoding in `AnonClaim._proofLeaf()` must be verified against the deployed Horizen zkVerify contract ABI before going live.
